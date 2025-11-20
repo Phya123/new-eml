@@ -1,0 +1,200 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EML Utility Portal</title>
+  <style>
+    body { background:#070707; color:#eee; font-family:Inter, system-ui, sans-serif; padding:20px; }
+    .card { background: #0f0f0f; padding:18px; border-radius:12px; box-shadow: 0 6px 18px rgba(0,0,0,0.6); max-width:720px; margin:12px auto;}
+    button { background:#111; color:#fff; border:none; padding:12px 16px; border-radius:10px; width:100%; font-size:16px; cursor:pointer; margin-top:8px; }
+    .green { color:#00ff9f; }
+    .red { color:#ff5b6b; }
+    a.btn { display:block; text-decoration:none; text-align:center; padding:12px; border-radius:10px; background:#111; color:#fff; margin-top:8px; }
+    .small { font-size:13px; color:#bdbdbd; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 style="margin:0 0 8px 0;">EML Utility Portal</h1>
+    <p class="small">Connect your wallet, verify EML NFT ownership and EML token balance, then claim your perks.</p>
+
+    <div style="margin-top:14px;">
+      <button id="connectEthBtn">Connect Ethereum Wallet</button>
+      <div id="ethAddress" class="small"></div>
+      <div id="ethStatus" class="small"></div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button id="connectSolBtn">Connect Solana Wallet (Phantom)</button>
+      <div id="solAddress" class="small"></div>
+      <div id="solStatus" class="small"></div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button id="verifyBtn">Verify NFT (ETH) & EML (SOL)</button>
+      <div id="verifyResult" class="small"></div>
+    </div>
+
+    <div id="unlocked" style="display:none; margin-top:18px;">
+      <h3 class="green">Unlocked — Claim Your Rewards</h3>
+
+      <!-- Shopify discount link -->
+      <a id="discountLink" class="btn" target="_blank" href="https://slimed-out-collaboration-inc.myshopify.com/discount/EMLNFT">Claim Clothing Discount</a>
+
+      <!-- Shoes drop -->
+      <a id="shoesLink" class="btn" target="_blank" href="https://slimed-out-collaboration-inc.myshopify.com/collections/nft-holder-drops">Go to Shoes Drop</a>
+
+      <button id="claimAirdropBtn">Claim EML Airdrop (Trigger)</button>
+      <div id="claimMsg" class="small"></div>
+    </div>
+
+    <div style="margin-top:10px; font-size:12px; color:#9a9a9a;">
+      Note: This page uses MetaMask (or Coinbase) for Ethereum and Phantom for Solana. Keep wallets unlocked and choose the correct network.
+    </div>
+  </div>
+
+  <!-- Ethers standalone bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <!-- Solana web3 -->
+  <script src="https://unpkg.com/@solana/web3.js@1.73.0/lib/index.iife.min.js"></script>
+
+<script>
+/* ========== CONFIG ========== */
+const ETH_NFT_CONTRACT = "0x495f947276749ce646f68ac8c248420045cb7b5e".toLowerCase();
+const SOL_EML_MINT = "9Hiy7cj9532c4mY5Q23q9fHDQ4ANfhcDg9FpPiegpump";
+const WEBHOOK_URL = "REPLACE_WITH_YOUR_APPS_SCRIPT_WEBHOOK_URL";
+/* =========================== */
+
+let ethAccount = null;
+let solAccount = null;
+
+// small helper to check ERC-721 balance using ethers
+async function checkERC721Balance(contractAddress, account) {
+  try {
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const abi = ["function balanceOf(address owner) view returns (uint256)"];
+    const contract = new ethers.Contract(contractAddress, abi, provider);
+    const balance = await contract.balanceOf(account);
+    return balance && balance.toNumber && balance.toNumber() > 0;
+  } catch (e) {
+    console.error("ERC721 check error", e);
+    return false;
+  }
+}
+
+// check Solana token balance by mint
+async function checkSolTokenBalance(mintAddress, ownerPubkey) {
+  try {
+    const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'), 'confirmed');
+    const owner = new solanaWeb3.PublicKey(ownerPubkey);
+    const resp = await connection.getParsedTokenAccountsByOwner(owner, { programId: solanaWeb3.TOKEN_PROGRAM_ID });
+    for (let { account } of resp.value) {
+      const parsed = account.data.parsed.info;
+      if (parsed && parsed.mint === mintAddress) {
+        const amount = parsed.tokenAmount.uiAmount || 0;
+        return amount > 0;
+      }
+    }
+    return false;
+  } catch (e) {
+    console.error("Sol token check error", e);
+    return false;
+  }
+}
+
+/* ===== UI wiring ===== */
+document.getElementById('connectEthBtn').onclick = async () => {
+  if (!window.ethereum) {
+    alert("Install MetaMask or use a Web3 browser.");
+    return;
+  }
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    ethAccount = accounts[0];
+    document.getElementById('ethAddress').innerText = "ETH: " + ethAccount;
+    document.getElementById('ethStatus').innerText = "Connected";
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+document.getElementById('connectSolBtn').onclick = async () => {
+  if (!window.solana || !window.solana.isPhantom) {
+    alert("Install Phantom wallet.");
+    return;
+  }
+  try {
+    const resp = await window.solana.connect();
+    solAccount = resp.publicKey.toString();
+    document.getElementById('solAddress').innerText = "SOL: " + solAccount;
+    document.getElementById('solStatus').innerText = "Connected";
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+document.getElementById('verifyBtn').onclick = async () => {
+  document.getElementById('verifyResult').innerText = "Verifying...";
+  if (!ethAccount || !solAccount) {
+    document.getElementById('verifyResult').innerText = "Please connect both wallets.";
+    return;
+  }
+
+  const hasNFT = await checkERC721Balance(ETH_NFT_CONTRACT, ethAccount);
+  const hasEML = await checkSolTokenBalance(SOL_EML_MINT, solAccount);
+
+  if (hasNFT) {
+    document.getElementById('ethStatus').innerHTML = "✔️ NFT Verified";
+  } else {
+    document.getElementById('ethStatus').innerHTML = "❌ No NFT found in ETH wallet";
+  }
+  if (hasEML) {
+    document.getElementById('solStatus').innerHTML = "✔️ EML token present";
+  } else {
+    document.getElementById('solStatus').innerHTML = "❌ EML token not found";
+  }
+
+  if (hasNFT && hasEML) {
+    document.getElementById('verifyResult').innerText = "All checks passed — portal unlocked!";
+    document.getElementById('unlocked').style.display = "block";
+
+    fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ action: "verified", eth: ethAccount, sol: solAccount, timestamp: Date.now() })
+    }).catch(e=>console.warn("webhook warn", e));
+  } else {
+    document.getElementById('verifyResult').innerText = "Verification failed. Both NFT and EML token required.";
+    document.getElementById('unlocked').style.display = "none";
+  }
+};
+
+document.getElementById('claimAirdropBtn').onclick = async () => {
+  if (!ethAccount || !solAccount) {
+    alert("Connect wallets first.");
+    return;
+  }
+  document.getElementById('claimMsg').innerText = "Submitting claim...";
+  const payload = { action: "claim", eth: ethAccount, sol: solAccount, reward: "EML_AIRDROP", timestamp: Date.now() };
+
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data && data.status === "ok" && data.claimed === true) {
+      document.getElementById('claimMsg').innerText = "Claim accepted — check your wallet/app for airdrop soon.";
+    } else if (data && data.status === "ok" && data.claimed === false) {
+      document.getElementById('claimMsg').innerText = "Already claimed for this wallet.";
+    } else {
+      document.getElementById('claimMsg').innerText = "Claim failed: " + (data.message || "unknown");
+    }
+  } catch (e) {
+    console.error(e);
+    document.getElementById('claimMsg').innerText = "Claim error — try again later.";
+  }
+};
+</script>
+</body>
+</html>

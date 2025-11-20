@@ -1,0 +1,15 @@
+document.getElementById('connect-eth').onclick = function() {
+  document.getElementById('wallet-status').innerText = "Ethereum wallet connected (simulated)";
+}
+
+document.getElementById('connect-sol').onclick = function() {
+  document.getElementById('wallet-status').innerText = "Solana wallet connected (simulated)";
+}
+
+document.getElementById('verify-nft').onclick = function() {
+  document.getElementById('verification-status').innerText = "NFT & EML Token verified (simulated)";
+}
+
+document.getElementById('claim-airdrop').onclick = function() {
+  document.getElementById('airdrop-status').innerText = "Airdrop claimed (simulated)";
+}
